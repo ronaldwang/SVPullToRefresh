@@ -10,7 +10,6 @@
 #import <UIKit/UIKit.h>
 #import <AvailabilityMacros.h>
 
-
 @class SVPullToRefreshView;
 
 @interface UIScrollView (SVPullToRefresh)
@@ -39,6 +38,8 @@ typedef NS_ENUM(NSUInteger, SVPullToRefreshState) {
 
 @interface SVPullToRefreshView : UIView
 
+@property (nonatomic, assign) BOOL soundEffectEnabled;
+@property (nonatomic, strong) UIImageView *arrow;
 @property (nonatomic, strong) UIColor *arrowColor;
 @property (nonatomic, strong) UIColor *textColor;
 @property (nonatomic, strong, readonly) UILabel *titleLabel;
@@ -48,6 +49,7 @@ typedef NS_ENUM(NSUInteger, SVPullToRefreshState) {
 
 @property (nonatomic, readonly) SVPullToRefreshState state;
 @property (nonatomic, readonly) SVPullToRefreshPosition position;
+@property (nonatomic, readwrite) CGFloat originalTopInset;
 
 - (void)setTitle:(NSString *)title forState:(SVPullToRefreshState)state;
 - (void)setSubtitle:(NSString *)subtitle forState:(SVPullToRefreshState)state;

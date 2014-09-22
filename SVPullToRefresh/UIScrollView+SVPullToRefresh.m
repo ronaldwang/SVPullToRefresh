@@ -9,25 +9,22 @@
 
 #import <QuartzCore/QuartzCore.h>
 #import "UIScrollView+SVPullToRefresh.h"
+#import <AudioToolbox/AudioToolbox.h>
 
+#ifndef FLT_EPSILON
+#define FLT_EPSILON 1.19209290E-07F
+#endif
 //fequal() and fequalzro() from http://stackoverflow.com/a/1614761/184130
 #define fequal(a,b) (fabs((a) - (b)) < FLT_EPSILON)
 #define fequalzero(a) (fabs(a) < FLT_EPSILON)
 
 static CGFloat const SVPullToRefreshViewHeight = 60;
 
-@interface SVPullToRefreshArrow : UIView
-
-@property (nonatomic, strong) UIColor *arrowColor;
-
-@end
-
 
 @interface SVPullToRefreshView ()
 
 @property (nonatomic, copy) void (^pullToRefreshActionHandler)(void);
 
-@property (nonatomic, strong) SVPullToRefreshArrow *arrow;
 @property (nonatomic, strong) UIActivityIndicatorView *activityIndicatorView;
 @property (nonatomic, strong, readwrite) UILabel *titleLabel;
 @property (nonatomic, strong, readwrite) UILabel *subtitleLabel;
@@ -39,7 +36,6 @@ static CGFloat const SVPullToRefreshViewHeight = 60;
 @property (nonatomic, strong) NSMutableArray *viewForState;
 
 @property (nonatomic, weak) UIScrollView *scrollView;
-@property (nonatomic, readwrite) CGFloat originalTopInset;
 @property (nonatomic, readwrite) CGFloat originalBottomInset;
 
 @property (nonatomic, assign) BOOL wasTriggeredByUser;
@@ -156,6 +152,9 @@ static char UIScrollViewPullToRefreshView;
 
 #pragma mark - SVPullToRefresh
 @implementation SVPullToRefreshView
+{
+    float arrowDegree;
+}
 
 // public properties
 @synthesize pullToRefreshActionHandler, arrowColor, textColor, activityIndicatorViewColor, activityIndicatorViewStyle, lastUpdatedDate, dateFormatter;
@@ -169,6 +168,25 @@ static char UIScrollViewPullToRefreshView;
 @synthesize titleLabel = _titleLabel;
 @synthesize dateLabel = _dateLabel;
 
+- (void)startRefreshing
+{
+    if (self.soundEffectEnabled && self.window) {
+        NSString *soundPath = [[NSBundle mainBundle] pathForResource:@"psst1" ofType:@"wav"];
+        SystemSoundID soundID;
+        AudioServicesCreateSystemSoundID((__bridge CFURLRef)[NSURL fileURLWithPath: soundPath], &soundID);
+        AudioServicesPlaySystemSound(soundID);
+    }
+}
+
+- (void)endRefreshing
+{
+    if (self.soundEffectEnabled && self.window) {
+        NSString *soundPath = [[NSBundle mainBundle] pathForResource:@"pop" ofType:@"wav"];
+        SystemSoundID soundID;
+        AudioServicesCreateSystemSoundID((__bridge CFURLRef)[NSURL fileURLWithPath: soundPath], &soundID);
+        AudioServicesPlaySystemSound(soundID);
+    }
+}
 
 - (id)initWithFrame:(CGRect)frame {
     if(self = [super initWithFrame:frame]) {
@@ -180,10 +198,7 @@ static char UIScrollViewPullToRefreshView;
         self.state = SVPullToRefreshStateStopped;
         self.showsDateLabel = NO;
         
-        self.titles = [NSMutableArray arrayWithObjects:NSLocalizedString(@"Pull to refresh...",),
-                             NSLocalizedString(@"Release to refresh...",),
-                             NSLocalizedString(@"Loading...",),
-                                nil];
+        self.titles = [NSMutableArray arrayWithObjects:@"", @"", @"", nil];
         
         self.subtitles = [NSMutableArray arrayWithObjects:@"", @"", @"", @"", nil];
         self.viewForState = [NSMutableArray arrayWithObjects:@"", @"", @"", @"", nil];
@@ -234,6 +249,9 @@ static char UIScrollViewPullToRefreshView;
             case SVPullToRefreshStateAll:
             case SVPullToRefreshStateStopped:
                 self.arrow.alpha = 1;
+                if (self.activityIndicatorView.isAnimating) {
+                    [self endRefreshing];
+                }
                 [self.activityIndicatorView stopAnimating];
                 switch (self.position) {
                     case SVPullToRefreshPositionTop:
@@ -257,6 +275,9 @@ static char UIScrollViewPullToRefreshView;
                 break;
                 
             case SVPullToRefreshStateLoading:
+                if (!self.activityIndicatorView.isAnimating) {
+                    [self startRefreshing];
+                }
                 [self.activityIndicatorView startAnimating];
                 switch (self.position) {
                     case SVPullToRefreshPositionTop:
@@ -440,11 +461,10 @@ static char UIScrollViewPullToRefreshView;
 
 #pragma mark - Getters
 
-- (SVPullToRefreshArrow *)arrow {
-    if(!_arrow) {
-		_arrow = [[SVPullToRefreshArrow alloc]initWithFrame:CGRectMake(0, self.bounds.size.height-54, 22, 48)];
-        _arrow.backgroundColor = [UIColor clearColor];
-		[self addSubview:_arrow];
+- (UIImageView *)arrow
+{
+    if (!_arrow.superview) {
+        [self addSubview:_arrow];
     }
     return _arrow;
 }
@@ -495,10 +515,6 @@ static char UIScrollViewPullToRefreshView;
     return dateFormatter;
 }
 
-- (UIColor *)arrowColor {
-	return self.arrow.arrowColor; // pass through
-}
-
 - (UIColor *)textColor {
     return self.titleLabel.textColor;
 }
@@ -512,11 +528,6 @@ static char UIScrollViewPullToRefreshView;
 }
 
 #pragma mark - Setters
-
-- (void)setArrowColor:(UIColor *)newArrowColor {
-	self.arrow.arrowColor = newArrowColor; // pass through
-	[self.arrow setNeedsDisplay];
-}
 
 - (void)setTitle:(NSString *)title forState:(SVPullToRefreshState)state {
     if(!title)
@@ -660,6 +671,10 @@ static char UIScrollViewPullToRefreshView;
 }
 
 - (void)rotateArrow:(float)degrees hide:(BOOL)hide {
+    if (degrees != 0 && arrowDegree == 0) {
+        [self startRefreshing];
+    }
+    arrowDegree = degrees;
     [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionAllowUserInteraction animations:^{
         self.arrow.layer.transform = CATransform3DMakeRotation(degrees, 0, 0, 1);
         self.arrow.layer.opacity = !hide;
@@ -667,80 +682,4 @@ static char UIScrollViewPullToRefreshView;
     } completion:NULL];
 }
 
-@end
-
-
-#pragma mark - SVPullToRefreshArrow
-
-@implementation SVPullToRefreshArrow
-@synthesize arrowColor;
-
-- (UIColor *)arrowColor {
-	if (arrowColor) return arrowColor;
-	return [UIColor grayColor]; // default Color
-}
-
-- (void)drawRect:(CGRect)rect {
-	CGContextRef c = UIGraphicsGetCurrentContext();
-	
-	// the rects above the arrow
-	CGContextAddRect(c, CGRectMake(5, 0, 12, 4)); // to-do: use dynamic points
-	CGContextAddRect(c, CGRectMake(5, 6, 12, 4)); // currently fixed size: 22 x 48pt
-	CGContextAddRect(c, CGRectMake(5, 12, 12, 4));
-	CGContextAddRect(c, CGRectMake(5, 18, 12, 4));
-	CGContextAddRect(c, CGRectMake(5, 24, 12, 4));
-	CGContextAddRect(c, CGRectMake(5, 30, 12, 4));
-	
-	// the arrow
-	CGContextMoveToPoint(c, 0, 34);
-	CGContextAddLineToPoint(c, 11, 48);
-	CGContextAddLineToPoint(c, 22, 34);
-	CGContextAddLineToPoint(c, 0, 34);
-	CGContextClosePath(c);
-	
-	CGContextSaveGState(c);
-	CGContextClip(c);
-	
-	// Gradient Declaration
-	CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-	CGFloat alphaGradientLocations[] = {0, 0.8f};
-    
-	CGGradientRef alphaGradient = nil;
-    if([[[UIDevice currentDevice] systemVersion]floatValue] >= 5){
-        NSArray* alphaGradientColors = [NSArray arrayWithObjects:
-                                        (id)[self.arrowColor colorWithAlphaComponent:0].CGColor,
-                                        (id)[self.arrowColor colorWithAlphaComponent:1].CGColor,
-                                        nil];
-        alphaGradient = CGGradientCreateWithColors(colorSpace, (__bridge CFArrayRef)alphaGradientColors, alphaGradientLocations);
-    }else{
-        const CGFloat * components = CGColorGetComponents([self.arrowColor CGColor]);
-        size_t numComponents = CGColorGetNumberOfComponents([self.arrowColor CGColor]);
-        CGFloat colors[8];
-        switch(numComponents){
-            case 2:{
-                colors[0] = colors[4] = components[0];
-                colors[1] = colors[5] = components[0];
-                colors[2] = colors[6] = components[0];
-                break;
-            }
-            case 4:{
-                colors[0] = colors[4] = components[0];
-                colors[1] = colors[5] = components[1];
-                colors[2] = colors[6] = components[2];
-                break;
-            }
-        }
-        colors[3] = 0;
-        colors[7] = 1;
-        alphaGradient = CGGradientCreateWithColorComponents(colorSpace,colors,alphaGradientLocations,2);
-    }
-	
-	
-	CGContextDrawLinearGradient(c, alphaGradient, CGPointZero, CGPointMake(0, rect.size.height), 0);
-    
-	CGContextRestoreGState(c);
-	
-	CGGradientRelease(alphaGradient);
-	CGColorSpaceRelease(colorSpace);
-}
 @end
